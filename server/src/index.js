@@ -1,5 +1,6 @@
-// Load environment variables from .env file into process.env before anything else runs.
-require('dotenv').config();
+const path = require('path');
+// Load environment variables from server/.env regardless of current working directory
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const app = require('./app');
 

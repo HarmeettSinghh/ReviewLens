@@ -1,0 +1,56 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. AnalysisCache: One row per successfully analysed unique text.
+// Failed analyses are NEVER cached, so a re-upload retries them.
+model AnalysisCache {
+  id         Int      @id @default(autoincrement())
+  textHash   String   @unique
+  sentiment  String
+  topics     String   // JSON array stored as text because SQLite has no native array type
+  summary    String
+  needsReply Boolean
+  createdAt  DateTime @default(now())
+}
+
+// 2. Review: One row per CSV row of the latest upload.
+// Replaced on each upload run inside a single database transaction.
+model Review {
+  id             Int      @id @default(autoincrement())
+  reviewId       String
+  product        String
+  rating         Int?
+  date           String?
+  originalText   String
+  cleanText      String
+  textHash       String
+  status         String   // "analysed" | "analysis_failed" | "skipped_empty" | "duplicate"
+  duplicateOf    String?
+  sentiment      String?
+  topics         String?  // JSON array stored as text
+  summary        String?
+  needsReply     Boolean?
+  suggestedReply String?
+  createdAt      DateTime @default(now())
+}
+
+// 3. UploadRun: One row per upload, for the cost/speed log.
+model UploadRun {
+  id             Int      @id @default(autoincrement())
+  fileName       String
+  totalRows      Int
+  analysedCount  Int
+  duplicateCount Int
+  skippedCount   Int
+  failedCount    Int
+  aiCalls        Int
+  cacheHits      Int
+  durationMs     Int
+  createdAt      DateTime @default(now())
+}
