@@ -1,0 +1,15 @@
+{
+  "name": "reviewlens",
+  "version": "1.0.0",
+  "description": "Customer review intelligence, sentiment tracking, and triage pipeline powered by Google Gemini.",
+  "scripts": {
+    "install:all": "npm install && npm run install:server && npm run install:client",
+    "install:server": "npm --prefix server install",
+    "install:client": "npm --prefix client install",
+    "dev": "concurrently --kill-others \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "test": "npm --prefix server test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

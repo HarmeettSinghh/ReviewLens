@@ -53,6 +53,68 @@ function getTopTopics(reviewsSubset, limit = 3) {
 }
 
 /**
+ * Maps a numeric star rating (1-5) to its expected sentiment category:
+ * - 4 to 5 stars -> positive
+ * - 3 stars -> neutral
+ * - 1 to 2 stars -> negative
+ * Returns null if rating is null, undefined, or outside 1-5.
+ */
+function getExpectedSentiment(rating) {
+  if (rating === null || rating === undefined || rating === '') {
+    return null;
+  }
+  const num = Number(rating);
+  if (Number.isNaN(num)) {
+    return null;
+  }
+  if (num >= 4 && num <= 5) return 'positive';
+  if (num === 3) return 'neutral';
+  if (num >= 1 && num <= 2) return 'negative';
+  return null;
+}
+
+/**
+ * Checks whether a review exhibits a strong polarity mismatch between star rating and text sentiment:
+ * - Only flagged for OPPOSITE polarity:
+ *   - Rating 4-5 with negative text sentiment (e.g. sarcastic 5-star review "Terrible quality!")
+ *   - Rating 1-2 with positive text sentiment (e.g. "Loved everything!" but gave 1 star by accident)
+ * - Only analysed reviews with a non-null rating can be flagged.
+ *
+ * @param {Object} review The Review record
+ * @returns {boolean} True if strong opposite-polarity mismatch exists
+ */
+function isRatingMismatch(review) {
+  if (!review || review.status !== 'analysed') {
+    return false;
+  }
+  if (review.rating === null || review.rating === undefined) {
+    return false;
+  }
+  if (!review.sentiment) {
+    return false;
+  }
+
+  const num = Number(review.rating);
+  if (Number.isNaN(num)) {
+    return false;
+  }
+
+  const actualSentiment = String(review.sentiment).toLowerCase();
+
+  // Strong opposite polarity:
+  // 4-5 stars with negative sentiment
+  if (num >= 4 && actualSentiment === 'negative') {
+    return true;
+  }
+  // 1-2 stars with positive sentiment
+  if (num <= 2 && num >= 1 && actualSentiment === 'positive') {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * computeStats(reviews)
  * Pure calculation function that computes dashboard metrics for a list of reviews.
  * - Statistics use only reviews with status "analysed".
@@ -112,15 +174,40 @@ function computeStats(reviews = []) {
   // 4. Needs reply count across analysed reviews
   const needsReplyCount = analysedReviews.filter((r) => Boolean(r.needsReply)).length;
 
-  // 5. Top complaints (reviews with sentiment negative OR needsReply true)
+  // 5. Rating vs text agreement calculation
+  // Only considers analysed reviews with a non-null rating
+  const ratedAnalysed = analysedReviews.filter(
+    (r) => r.rating !== null && r.rating !== undefined && !Number.isNaN(Number(r.rating))
+  );
+
+  let agreementCount = 0;
+  let mismatchCount = 0;
+
+  for (const r of ratedAnalysed) {
+    const expected = getExpectedSentiment(r.rating);
+    const actual = r.sentiment ? String(r.sentiment).toLowerCase() : null;
+    if (expected && actual && expected === actual) {
+      agreementCount++;
+    }
+    if (isRatingMismatch(r)) {
+      mismatchCount++;
+    }
+  }
+
+  const agreementPercent =
+    ratedAnalysed.length > 0
+      ? Math.round((agreementCount / ratedAnalysed.length) * 100 * 10) / 10
+      : 100;
+
+  // 6. Top complaints (reviews with sentiment negative OR needsReply true)
   const complaintReviews = analysedReviews.filter((r) => r.sentiment === 'negative' || Boolean(r.needsReply));
   const topComplaints = getTopTopics(complaintReviews, 3);
 
-  // 6. Top praises (reviews with sentiment positive)
+  // 7. Top praises (reviews with sentiment positive)
   const praiseReviews = analysedReviews.filter((r) => r.sentiment === 'positive');
   const topPraises = getTopTopics(praiseReviews, 3);
 
-  // 7. Sorted distinct list of product names
+  // 8. Sorted distinct list of product names
   const products = Array.from(
     new Set(
       safeReviews
@@ -133,6 +220,8 @@ function computeStats(reviews = []) {
     counts,
     sentiment,
     needsReplyCount,
+    agreementPercent,
+    mismatchCount,
     topComplaints,
     topPraises,
     products,
@@ -141,4 +230,6 @@ function computeStats(reviews = []) {
 
 module.exports = {
   computeStats,
+  getExpectedSentiment,
+  isRatingMismatch,
 };

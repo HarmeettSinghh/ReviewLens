@@ -26,15 +26,15 @@ export default function UploadSummary({ summary }) {
       </span>
       <span className="summary-divider">·</span>
       <span className="summary-pill pill-ai">
-        <strong>{summary.aiCalls}</strong> AI calls
+        <strong>{summary.aiCalls}</strong> AI calls made
       </span>
       <span className="summary-divider">·</span>
       <span className="summary-pill pill-cache">
-        <strong>{summary.cacheHits}</strong> from cache
+        <strong>{summary.cacheHits}</strong> served from cache
       </span>
       <span className="summary-divider">·</span>
       <span className="summary-item time-item">
-        ⚡ {seconds}s
+        ⚡ <strong>{seconds}s</strong> total processing time
       </span>
     </div>
   );

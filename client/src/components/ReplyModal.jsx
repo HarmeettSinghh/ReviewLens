@@ -1,50 +1,77 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchReply } from '../api';
 
 export default function ReplyModal({ review, onClose, onReplySaved }) {
   const [replyText, setReplyText] = useState(review?.suggestedReply || '');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!review?.suggestedReply);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
 
   const reviewId = review?.id || review?.reviewId;
 
-  // Load or generate reply
-  const loadReply = useCallback(
-    async (regenerate = false) => {
-      if (!reviewId) return;
+  // Word count helper
+  const wordCount = replyText.trim() ? replyText.trim().split(/\s+/).length : 0;
 
-      // If we already have a saved reply and user is NOT explicitly regenerating, don't hit the network
-      if (review?.suggestedReply && !regenerate) {
-        setReplyText(review.suggestedReply);
-        return;
+  // Close on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
       }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
+  // Initial load: only call AI if review does not already have a saved reply
+  useEffect(() => {
+    if (review?.suggestedReply || !reviewId) {
+      return;
+    }
+
+    let isMounted = true;
+    async function generateInitialReply() {
       try {
         setLoading(true);
         setError(null);
-        const data = await fetchReply(reviewId, regenerate);
+        const data = await fetchReply(reviewId, false);
+        if (!isMounted) return;
         setReplyText(data.reply || '');
         if (onReplySaved) {
           onReplySaved(reviewId, data.reply);
         }
       } catch (err) {
+        if (!isMounted) return;
         setError(err.message || 'Failed to generate customer support reply.');
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
-    },
-    [reviewId, review?.suggestedReply, onReplySaved]
-  );
-
-  useEffect(() => {
-    // Only fetch if no reply is currently stored
-    if (!review?.suggestedReply) {
-      loadReply(false);
-    } else {
-      setReplyText(review.suggestedReply);
     }
-  }, [loadReply, review?.suggestedReply]);
+
+    generateInitialReply();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [reviewId, review?.suggestedReply, onReplySaved]);
+
+  // Explicit user action to regenerate reply
+  const handleRegenerate = async () => {
+    if (!reviewId) return;
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await fetchReply(reviewId, true);
+      setReplyText(data.reply || '');
+      if (onReplySaved) {
+        onReplySaved(reviewId, data.reply);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to regenerate reply.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Handle Copy to Clipboard
   const handleCopy = async () => {
@@ -54,7 +81,7 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback if clipboard API is blocked in sandbox
+      // Fallback for restricted clipboard permissions
       const el = document.createElement('textarea');
       el.value = replyText;
       document.body.appendChild(el);
@@ -69,7 +96,7 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
   if (!review) return null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
       <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         {/* Modal Header */}
         <div className="modal-header">
@@ -77,7 +104,13 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
             <span className="modal-badge">{review.reviewId || `ID ${review.id}`}</span>
             <h3 className="modal-title">Suggested Customer Support Reply</h3>
           </div>
-          <button type="button" className="btn-modal-close" onClick={onClose} aria-label="Close modal">
+          <button
+            type="button"
+            className="btn-modal-close"
+            onClick={onClose}
+            aria-label="Close modal (Esc)"
+            title="Close (Esc)"
+          >
             &times;
           </button>
         </div>
@@ -112,7 +145,8 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
             {loading ? (
               <div className="modal-loading-box">
                 <div className="spinner" />
-                <p>Generating polite customer response with Gemini...</p>
+                <p>Drafting courteous response with Google Gemini...</p>
+                <span className="loading-subhint">Applying policy-safe guardrails and anti-injection sanitization</span>
               </div>
             ) : error ? (
               <div className="modal-error-box">
@@ -121,16 +155,21 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
                 <button
                   type="button"
                   className="btn btn-secondary btn-retry"
-                  onClick={() => loadReply(false)}
+                  onClick={handleRegenerate}
                 >
                   Try Again
                 </button>
               </div>
             ) : (
               <div className="reply-editor-wrapper">
-                <label htmlFor="reply-textarea" className="reply-textarea-label">
-                  Suggested Response (editable):
-                </label>
+                <div className="reply-editor-header">
+                  <label htmlFor="reply-textarea" className="reply-textarea-label">
+                    Suggested Response (editable):
+                  </label>
+                  <span className={`reply-word-count ${wordCount > 75 ? 'count-warning' : ''}`}>
+                    {wordCount} words {wordCount > 70 ? '(target ~70 max)' : ''}
+                  </span>
+                </div>
                 <textarea
                   id="reply-textarea"
                   value={replyText}
@@ -148,11 +187,12 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
         <div className="modal-footer">
           <button
             type="button"
-            className="btn btn-secondary"
-            onClick={() => loadReply(true)}
+            className="btn btn-secondary btn-regenerate"
+            onClick={handleRegenerate}
             disabled={loading}
+            title="Request an alternate response draft from Gemini"
           >
-            {loading ? 'Generating...' : '🔄 Regenerate'}
+            {loading ? 'Drafting...' : '🔄 Regenerate Reply'}
           </button>
 
           <div className="footer-actions-right">
@@ -161,8 +201,9 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
               className={`btn btn-copy ${copied ? 'btn-copied' : ''}`}
               onClick={handleCopy}
               disabled={loading || !replyText}
+              title="Copy response to clipboard"
             >
-              {copied ? '✓ Copied!' : 'Copy to Clipboard'}
+              {copied ? '✓ Copied to Clipboard!' : 'Copy Response'}
             </button>
             <button type="button" className="btn btn-primary" onClick={onClose}>
               Done

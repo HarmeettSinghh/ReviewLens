@@ -14,7 +14,7 @@ if (!process.env.GEMINI_API_KEY) {
   console.warn('[WARNING] GEMINI_API_KEY is missing from environment variables. Gemini features will not work.');
 }
 
-// Start the HTTP server.
-app.listen(PORT, () => {
+// Start the HTTP server binding to all network interfaces (IPv4 and IPv6 compatible)
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });

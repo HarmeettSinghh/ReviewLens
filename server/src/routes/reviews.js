@@ -1,18 +1,23 @@
 const express = require('express');
 const { getAllReviews, getReviewById, saveSuggestedReply } = require('../services/store');
 const { generateReply } = require('../services/gemini');
+const { isRatingMismatch } = require('../services/stats');
 
 const router = express.Router();
 
 /**
  * GET /api/reviews
  * Returns all reviews from the currently active dataset in file order (by id)
- * with topics parsed as JavaScript arrays.
+ * with topics parsed as JavaScript arrays, enriched with computed ratingMismatch flag.
  */
 router.get('/reviews', async (req, res, next) => {
   try {
     const reviews = await getAllReviews();
-    return res.status(200).json(reviews);
+    const enriched = reviews.map((r) => ({
+      ...r,
+      ratingMismatch: isRatingMismatch(r),
+    }));
+    return res.status(200).json(enriched);
   } catch (err) {
     next(err);
   }

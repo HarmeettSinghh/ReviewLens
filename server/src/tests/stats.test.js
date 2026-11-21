@@ -1,4 +1,4 @@
-const { computeStats } = require('../services/stats');
+const { computeStats, getExpectedSentiment, isRatingMismatch } = require('../services/stats');
 
 describe('computeStats service tests (pure function)', () => {
   // Test 1: Empty dataset handling
@@ -20,6 +20,8 @@ describe('computeStats service tests (pure function)', () => {
     });
 
     expect(stats.needsReplyCount).toBe(0);
+    expect(stats.agreementPercent).toBe(100);
+    expect(stats.mismatchCount).toBe(0);
     expect(stats.topComplaints).toEqual([]);
     expect(stats.topPraises).toEqual([]);
     expect(stats.products).toEqual([]);
@@ -29,14 +31,14 @@ describe('computeStats service tests (pure function)', () => {
   it('calculates sentiment percentages solely from analysed reviews and excludes duplicates/skipped/failed rows', () => {
     const mockReviews = [
       // 3 positive analysed reviews
-      { status: 'analysed', sentiment: 'positive', product: 'Product A', topics: ['quality'] },
-      { status: 'analysed', sentiment: 'positive', product: 'Product A', topics: ['quality'] },
-      { status: 'analysed', sentiment: 'positive', product: 'Product B', topics: ['support'] },
+      { status: 'analysed', sentiment: 'positive', rating: 5, product: 'Product A', topics: ['quality'] },
+      { status: 'analysed', sentiment: 'positive', rating: 4, product: 'Product A', topics: ['quality'] },
+      { status: 'analysed', sentiment: 'positive', rating: 5, product: 'Product B', topics: ['support'] },
       // 2 neutral analysed reviews
-      { status: 'analysed', sentiment: 'neutral', product: 'Product A', topics: ['price'] },
-      { status: 'analysed', sentiment: 'neutral', product: 'Product B', topics: ['price'] },
+      { status: 'analysed', sentiment: 'neutral', rating: 3, product: 'Product A', topics: ['price'] },
+      { status: 'analysed', sentiment: 'neutral', rating: 3, product: 'Product B', topics: ['price'] },
       // 1 negative analysed review
-      { status: 'analysed', sentiment: 'negative', product: 'Product B', topics: ['delivery'] },
+      { status: 'analysed', sentiment: 'negative', rating: 1, product: 'Product B', topics: ['delivery'] },
       // Non-analysed rows that must be excluded from percentages
       { status: 'duplicate', duplicateOf: 'R001', product: 'Product A', sentiment: 'positive' },
       { status: 'duplicate', duplicateOf: 'R002', product: 'Product A', sentiment: 'positive' },
@@ -71,6 +73,10 @@ describe('computeStats service tests (pure function)', () => {
 
     // Products list should be sorted distinct names from all reviews
     expect(stats.products).toEqual(['Product A', 'Product B', 'Product C']);
+
+    // 100% agreement since all 6 ratings match their expected sentiments
+    expect(stats.agreementPercent).toBe(100);
+    expect(stats.mismatchCount).toBe(0);
   });
 
   // Test 3: Top complaints ordering (count descending, then topic name, includes needsReply)
@@ -145,6 +151,69 @@ describe('computeStats service tests (pure function)', () => {
       const topTopics = stats.topPraises.map((p) => p.topic);
       expect(topTopics).toContain('other');
       expect(topTopics).toContain('quality');
+    });
+  });
+
+  // Test 5: Rating mismatch logic & agreement percent (Phase 11 bonus)
+  describe('Rating mismatch & agreement calculation', () => {
+    it('maps star ratings to expected sentiments correctly', () => {
+      expect(getExpectedSentiment(5)).toBe('positive');
+      expect(getExpectedSentiment(4)).toBe('positive');
+      expect(getExpectedSentiment(3)).toBe('neutral');
+      expect(getExpectedSentiment(2)).toBe('negative');
+      expect(getExpectedSentiment(1)).toBe('negative');
+      expect(getExpectedSentiment(null)).toBeNull();
+      expect(getExpectedSentiment(undefined)).toBeNull();
+      expect(getExpectedSentiment('invalid')).toBeNull();
+    });
+
+    it('flags strong opposite-polarity rating mismatches (e.g. R008: 5 stars with negative text)', () => {
+      // 5 stars with negative text (e.g. R008 sarcastic review) -> FLAGGED
+      expect(isRatingMismatch({ status: 'analysed', rating: 5, sentiment: 'negative' })).toBe(true);
+      // 4 stars with negative text -> FLAGGED
+      expect(isRatingMismatch({ status: 'analysed', rating: 4, sentiment: 'negative' })).toBe(true);
+      // 1 star with positive text (accidental 1-star) -> FLAGGED
+      expect(isRatingMismatch({ status: 'analysed', rating: 1, sentiment: 'positive' })).toBe(true);
+      // 2 stars with positive text -> FLAGGED
+      expect(isRatingMismatch({ status: 'analysed', rating: 2, sentiment: 'positive' })).toBe(true);
+
+      // Normal aligned reviews -> NOT flagged
+      expect(isRatingMismatch({ status: 'analysed', rating: 5, sentiment: 'positive' })).toBe(false);
+      expect(isRatingMismatch({ status: 'analysed', rating: 1, sentiment: 'negative' })).toBe(false);
+      expect(isRatingMismatch({ status: 'analysed', rating: 3, sentiment: 'neutral' })).toBe(false);
+
+      // Neutral ratings or neutral sentiments are NOT opposite polarity -> NOT flagged
+      expect(isRatingMismatch({ status: 'analysed', rating: 5, sentiment: 'neutral' })).toBe(false);
+      expect(isRatingMismatch({ status: 'analysed', rating: 1, sentiment: 'neutral' })).toBe(false);
+      expect(isRatingMismatch({ status: 'analysed', rating: 3, sentiment: 'negative' })).toBe(false);
+      expect(isRatingMismatch({ status: 'analysed', rating: 3, sentiment: 'positive' })).toBe(false);
+
+      // Non-analysed or unrated reviews -> NOT flagged
+      expect(isRatingMismatch({ status: 'duplicate', rating: 5, sentiment: 'negative' })).toBe(false);
+      expect(isRatingMismatch({ status: 'analysed', rating: null, sentiment: 'negative' })).toBe(false);
+    });
+
+    it('computes agreementPercent accurately across rated analysed reviews', () => {
+      const mockReviews = [
+        // Aligned: 5 stars & positive
+        { status: 'analysed', rating: 5, sentiment: 'positive' },
+        // Aligned: 1 star & negative
+        { status: 'analysed', rating: 1, sentiment: 'negative' },
+        // Aligned: 3 stars & neutral
+        { status: 'analysed', rating: 3, sentiment: 'neutral' },
+        // Mismatch: 5 stars & negative (R008 style)
+        { status: 'analysed', rating: 5, sentiment: 'negative' },
+        // Unrated analysed review: ignored in rating agreement
+        { status: 'analysed', rating: null, sentiment: 'positive' },
+        // Duplicate row: ignored
+        { status: 'duplicate', rating: 5, sentiment: 'negative' },
+      ];
+
+      const stats = computeStats(mockReviews);
+
+      // 4 rated analysed reviews, 3 agree (75.0%)
+      expect(stats.agreementPercent).toBe(75.0);
+      expect(stats.mismatchCount).toBe(1);
     });
   });
 });

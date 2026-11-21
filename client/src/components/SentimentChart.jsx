@@ -4,7 +4,7 @@ import { Doughnut } from 'react-chartjs-2';
 // Register required Chart.js modules
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-export default function SentimentChart({ sentiment }) {
+export default function SentimentChart({ sentiment, activeSentiment, onSelectSentiment }) {
   if (!sentiment) return null;
 
   const positiveCount = sentiment.positive?.count ?? 0;
@@ -20,6 +20,8 @@ export default function SentimentChart({ sentiment }) {
       </div>
     );
   }
+
+  const sentiments = ['positive', 'neutral', 'negative'];
 
   const data = {
     labels: ['Positive', 'Neutral', 'Negative'],
@@ -45,18 +47,40 @@ export default function SentimentChart({ sentiment }) {
   const options = {
     responsive: true,
     maintainAspectRatio: false,
+    onClick: (_event, elements) => {
+      if (elements && elements.length > 0 && onSelectSentiment) {
+        const index = elements[0].index;
+        const clickedSentiment = sentiments[index];
+        if (activeSentiment === clickedSentiment) {
+          onSelectSentiment('ALL'); // Reset
+        } else {
+          onSelectSentiment(clickedSentiment);
+        }
+      }
+    },
     plugins: {
       legend: {
         position: 'bottom',
+        onClick: (_e, legendItem) => {
+          if (onSelectSentiment) {
+            const clickedSentiment = sentiments[legendItem.index];
+            if (activeSentiment === clickedSentiment) {
+              onSelectSentiment('ALL');
+            } else {
+              onSelectSentiment(clickedSentiment);
+            }
+          }
+        },
         labels: {
           boxWidth: 14,
           padding: 16,
           font: {
             family: 'system-ui, -apple-system, sans-serif',
             size: 13,
-            weight: '500',
+            weight: '600',
           },
           color: '#334155',
+          cursor: 'pointer',
         },
       },
       tooltip: {
@@ -68,7 +92,7 @@ export default function SentimentChart({ sentiment }) {
           label: (context) => {
             const count = context.parsed;
             const pct = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
-            return ` ${context.label}: ${count} (${pct}%)`;
+            return ` ${context.label}: ${count} (${pct}%) — click to filter`;
           },
         },
       },
@@ -79,11 +103,28 @@ export default function SentimentChart({ sentiment }) {
   return (
     <div className="chart-card">
       <div className="chart-header">
-        <h3 className="card-heading">Sentiment Split</h3>
-        <span className="chart-subtitle">{total} reviews analysed</span>
+        <div>
+          <h3 className="card-heading">Sentiment Split</h3>
+          <span className="chart-subtitle">
+            {total} reviews analysed {activeSentiment && activeSentiment !== 'ALL' ? `(Filtered: ${activeSentiment})` : ''}
+          </span>
+        </div>
+        {activeSentiment && activeSentiment !== 'ALL' && (
+          <button
+            type="button"
+            className="btn-filter-reset-pill"
+            onClick={() => onSelectSentiment && onSelectSentiment('ALL')}
+            title="Reset sentiment filter"
+          >
+            Clear filter ×
+          </button>
+        )}
       </div>
       <div className="chart-container">
         <Doughnut data={data} options={options} />
+      </div>
+      <div className="chart-footer-hint">
+        <span>Click any slice or label to filter the reviews list</span>
       </div>
     </div>
   );

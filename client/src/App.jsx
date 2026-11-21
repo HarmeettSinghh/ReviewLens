@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { fetchStats, fetchReviews } from './api';
 import UploadBox from './components/UploadBox';
 import UploadSummary from './components/UploadSummary';
@@ -18,8 +18,63 @@ export default function App() {
   // Active review selected for customer support reply modal
   const [activeReplyReview, setActiveReplyReview] = useState(null);
 
+  // Unified filter state synchronized across KPI cards, chart, top lists, and table
+  const [filters, setFilters] = useState({
+    product: 'ALL',
+    sentiment: 'ALL',
+    topic: 'ALL',
+    onlyMismatches: false,
+    needsReplyOnly: false,
+    search: '',
+  });
+
+  const tableRef = useRef(null);
+
   // Load initial data on mount (so refresh shows existing analyses)
-  const loadData = useCallback(async () => {
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      try {
+        const [statsData, reviewsData] = await Promise.all([
+          fetchStats(),
+          fetchReviews(),
+        ]);
+
+        if (!isMounted) return;
+
+        setStats(statsData);
+        setReviews(reviewsData || []);
+
+        if (statsData.lastRun) {
+          setUploadSummary({
+            totalRows: statsData.lastRun.totalRows,
+            analysedCount: statsData.lastRun.analysedCount,
+            duplicateCount: statsData.lastRun.duplicateCount,
+            skippedCount: statsData.lastRun.skippedCount,
+            failedCount: statsData.lastRun.failedCount,
+            aiCalls: statsData.lastRun.aiCalls,
+            cacheHits: statsData.lastRun.cacheHits,
+            durationMs: statsData.lastRun.durationMs,
+          });
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        setError(err.message || 'Failed to connect to ReviewLens backend.');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Reload data after a fresh CSV upload
+  const reloadData = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -27,39 +82,85 @@ export default function App() {
         fetchStats(),
         fetchReviews(),
       ]);
-
       setStats(statsData);
       setReviews(reviewsData || []);
-
-      // If stats returned a previous upload run, populate uploadSummary
-      if (statsData.lastRun && !uploadSummary) {
-        setUploadSummary({
-          totalRows: statsData.lastRun.totalRows,
-          analysedCount: statsData.lastRun.analysedCount,
-          duplicateCount: statsData.lastRun.duplicateCount,
-          skippedCount: statsData.lastRun.skippedCount,
-          failedCount: statsData.lastRun.failedCount,
-          aiCalls: statsData.lastRun.aiCalls,
-          cacheHits: statsData.lastRun.cacheHits,
-          durationMs: statsData.lastRun.durationMs,
-        });
-      }
     } catch (err) {
-      setError(err.message || 'Failed to connect to ReviewLens backend.');
+      setError(err.message || 'Failed to refresh dashboard data.');
     } finally {
       setLoading(false);
     }
-  }, [uploadSummary]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  };
 
   // Callback triggered after successful CSV upload in UploadBox
   const handleUploadSuccess = async (summary) => {
     setUploadSummary(summary);
-    // Re-fetch both stats and reviews to display new results
-    await loadData();
+    await reloadData();
+  };
+
+  // Handler for KPI card clicks
+  const handleSelectKpiFilter = (filterObj) => {
+    if (!filterObj) {
+      // Reset all filters
+      setFilters({
+        product: 'ALL',
+        sentiment: 'ALL',
+        topic: 'ALL',
+        onlyMismatches: false,
+        needsReplyOnly: false,
+        search: '',
+      });
+      return;
+    }
+
+    if (filterObj.type === 'sentiment') {
+      setFilters((prev) => ({
+        ...prev,
+        sentiment: prev.sentiment === filterObj.value ? 'ALL' : filterObj.value,
+        needsReplyOnly: false,
+        onlyMismatches: false,
+      }));
+    } else if (filterObj.type === 'needsReply') {
+      setFilters((prev) => ({
+        ...prev,
+        needsReplyOnly: !prev.needsReplyOnly,
+        sentiment: 'ALL',
+        onlyMismatches: false,
+      }));
+    } else if (filterObj.type === 'onlyMismatches') {
+      setFilters((prev) => ({
+        ...prev,
+        onlyMismatches: !prev.onlyMismatches,
+        sentiment: 'ALL',
+        needsReplyOnly: false,
+      }));
+    }
+
+    // Scroll smoothly to table view
+    if (tableRef.current) {
+      tableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Handler for topic list clicks
+  const handleSelectTopic = (topicName) => {
+    setFilters((prev) => ({
+      ...prev,
+      topic: topicName,
+    }));
+    if (tableRef.current) {
+      tableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Handler for doughnut chart segment clicks
+  const handleSelectSentiment = (sentimentName) => {
+    setFilters((prev) => ({
+      ...prev,
+      sentiment: sentimentName,
+    }));
+    if (tableRef.current) {
+      tableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 
   // Callback when a reply is generated or saved in ReplyModal
@@ -78,6 +179,15 @@ export default function App() {
 
   const hasData = reviews && reviews.length > 0;
 
+  // Active filter state to pass to SummaryCards
+  const activeCardFilter = filters.onlyMismatches
+    ? { type: 'onlyMismatches', value: true }
+    : filters.needsReplyOnly
+    ? { type: 'needsReply', value: true }
+    : filters.sentiment !== 'ALL'
+    ? { type: 'sentiment', value: filters.sentiment }
+    : null;
+
   return (
     <div className="app-shell">
       {/* Brand Header */}
@@ -92,7 +202,7 @@ export default function App() {
           </div>
           {stats?.lastRun && (
             <div className="header-meta">
-              <span className="header-meta-label">Last Ingested File</span>
+              <span className="header-meta-label">Active Dataset</span>
               <span className="header-meta-file">{stats.lastRun.fileName}</span>
             </div>
           )}
@@ -139,25 +249,37 @@ export default function App() {
         {/* Dashboard Content */}
         {hasData && (
           <>
-            {/* Top Stat Cards */}
+            {/* Top Interactive Stat Cards */}
             <section className="section-stats">
-              <SummaryCards stats={stats} />
-            </section>
-
-            {/* Visual Insights: Sentiment Chart & Top Lists */}
-            <section className="section-insights-grid">
-              <SentimentChart sentiment={stats?.sentiment} />
-              <TopLists
-                topComplaints={stats?.topComplaints}
-                topPraises={stats?.topPraises}
+              <SummaryCards
+                stats={stats}
+                activeFilter={activeCardFilter}
+                onSelectFilter={handleSelectKpiFilter}
               />
             </section>
 
-            {/* Filterable Reviews Table */}
-            <section className="section-table">
+            {/* Visual Insights: Interactive Sentiment Chart & Top Lists */}
+            <section className="section-insights-grid">
+              <SentimentChart
+                sentiment={stats?.sentiment}
+                activeSentiment={filters.sentiment}
+                onSelectSentiment={handleSelectSentiment}
+              />
+              <TopLists
+                topComplaints={stats?.topComplaints}
+                topPraises={stats?.topPraises}
+                activeTopic={filters.topic}
+                onSelectTopic={handleSelectTopic}
+              />
+            </section>
+
+            {/* Filterable Reviews Table with Search & Accordion Details */}
+            <section className="section-table" ref={tableRef}>
               <ReviewTable
                 reviews={reviews}
                 products={stats?.products || []}
+                filters={filters}
+                onFilterChange={setFilters}
                 onSuggestReply={(review) => setActiveReplyReview(review)}
               />
             </section>
