@@ -3,7 +3,10 @@ const { SENTIMENTS, TOPICS } = require('../schemas/analysis');
 const {
   ANALYSIS_SYSTEM_INSTRUCTION,
   buildAnalysisUserContent,
+  REPLY_SYSTEM_INSTRUCTION,
+  buildReplyUserContent,
 } = require('./prompts');
+const { callWithBackoff } = require('./retry');
 
 /**
  * Custom error class for AI API failures.
@@ -153,10 +156,79 @@ async function analyseBatch(reviews) {
   }
 }
 
+/**
+ * generateReply(review, options)
+ * Generates a polite customer support reply for a single review.
+ * Applies callWithBackoff for retryable errors.
+ *
+ * @param {Object} review The review object { reviewId, cleanText, ... }
+ * @param {Object} options Configuration/dependencies { maxRetries, baseDelayMs, sleep, aiClient }
+ * @returns {Promise<string>} The generated reply text
+ */
+async function generateReply(review, options = {}) {
+  assertGeminiConfigured();
+
+  const {
+    maxRetries = 3,
+    baseDelayMs = 500,
+    sleep,
+    aiClient,
+  } = options;
+
+  const userContent = buildReplyUserContent(review);
+  const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS) || 30000;
+
+  const makeCall = async () => {
+    let timeoutTimer;
+    try {
+      const apiVersion = process.env.GEMINI_API_VERSION || 'v1beta';
+      const ai = aiClient || new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        apiVersion,
+      });
+
+      const apiCallPromise = ai.models.generateContent({
+        model: process.env.GEMINI_MODEL,
+        contents: userContent,
+        config: {
+          systemInstruction: REPLY_SYSTEM_INSTRUCTION,
+          temperature: 0.2, // Low temperature for consistent polite tone
+        },
+      });
+
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutTimer = setTimeout(() => {
+          reject(new AiApiError(`Gemini request timed out after ${timeoutMs}ms`, null, true));
+        }, timeoutMs);
+      });
+
+      const response = await Promise.race([apiCallPromise, timeoutPromise]);
+      const replyText = (response && response.text) ? response.text.trim() : '';
+      return replyText;
+    } catch (err) {
+      if (err instanceof AiApiError) {
+        throw err;
+      }
+      throw wrapGeminiError(err);
+    } finally {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
+    }
+  };
+
+  return await callWithBackoff(makeCall, {
+    maxRetries,
+    baseDelayMs,
+    sleep,
+  });
+}
+
 module.exports = {
   AiApiError,
   isStatusRetryable,
   wrapGeminiError,
   assertGeminiConfigured,
   analyseBatch,
+  generateReply,
 };

@@ -61,3 +61,27 @@ export async function fetchReviews() {
 
   return data;
 }
+
+/**
+ * Generates or retrieves a suggested customer support reply for a review.
+ * @param {string|number} reviewId 
+ * @param {boolean} regenerate 
+ * @returns {Promise<{ reply: string }>}
+ */
+export async function fetchReply(reviewId, regenerate = false) {
+  const res = await fetch(`/api/reviews/${reviewId}/reply`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ regenerate }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(data.error || `Failed to generate reply (HTTP ${res.status})`);
+  }
+
+  return data;
+}

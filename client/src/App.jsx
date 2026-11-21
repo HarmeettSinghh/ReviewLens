@@ -6,6 +6,7 @@ import SummaryCards from './components/SummaryCards';
 import SentimentChart from './components/SentimentChart';
 import TopLists from './components/TopLists';
 import ReviewTable from './components/ReviewTable';
+import ReplyModal from './components/ReplyModal';
 
 export default function App() {
   const [stats, setStats] = useState(null);
@@ -13,6 +14,9 @@ export default function App() {
   const [uploadSummary, setUploadSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Active review selected for customer support reply modal
+  const [activeReplyReview, setActiveReplyReview] = useState(null);
 
   // Load initial data on mount (so refresh shows existing analyses)
   const loadData = useCallback(async () => {
@@ -25,7 +29,7 @@ export default function App() {
       ]);
 
       setStats(statsData);
-      setReviews(reviewsData.reviews || []);
+      setReviews(reviewsData || []);
 
       // If stats returned a previous upload run, populate uploadSummary
       if (statsData.lastRun && !uploadSummary) {
@@ -56,6 +60,20 @@ export default function App() {
     setUploadSummary(summary);
     // Re-fetch both stats and reviews to display new results
     await loadData();
+  };
+
+  // Callback when a reply is generated or saved in ReplyModal
+  const handleReplySaved = (reviewId, newReply) => {
+    setReviews((prev) =>
+      prev.map((r) =>
+        r.id === reviewId || r.reviewId === reviewId
+          ? { ...r, suggestedReply: newReply }
+          : r
+      )
+    );
+    if (activeReplyReview && (activeReplyReview.id === reviewId || activeReplyReview.reviewId === reviewId)) {
+      setActiveReplyReview((prev) => ({ ...prev, suggestedReply: newReply }));
+    }
   };
 
   const hasData = reviews && reviews.length > 0;
@@ -140,11 +158,21 @@ export default function App() {
               <ReviewTable
                 reviews={reviews}
                 products={stats?.products || []}
+                onSuggestReply={(review) => setActiveReplyReview(review)}
               />
             </section>
           </>
         )}
       </main>
+
+      {/* Suggested Reply Modal */}
+      {activeReplyReview && (
+        <ReplyModal
+          review={activeReplyReview}
+          onClose={() => setActiveReplyReview(null)}
+          onReplySaved={handleReplySaved}
+        />
+      )}
 
       {/* Clean Footer */}
       <footer className="app-footer">

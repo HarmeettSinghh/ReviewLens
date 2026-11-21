@@ -1,48 +1,6 @@
 const { parseAiJson, validateBatch } = require('../schemas/analysis');
 const { analyseBatch: defaultAnalyseBatch, AiApiError } = require('./gemini');
-
-/**
- * Default sleep implementation using setTimeout.
- */
-const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * callWithBackoff(fn, options)
- * Executes an async function with exponential backoff and jitter for retryable errors.
- * - Retryable errors (e.g. HTTP 429, 5xx, network drops) wait baseDelayMs * 2^attempt + jitter.
- * - Non-retryable errors (e.g. HTTP 400, 401, 403, 404) are thrown immediately.
- * - After maxRetries fail, re-throws the last error.
- */
-async function callWithBackoff(fn, options = {}) {
-  const {
-    maxRetries = 4,
-    baseDelayMs = 1000,
-    sleep = defaultSleep,
-  } = options;
-
-  let attempt = 0;
-
-  while (true) {
-    try {
-      return await fn();
-    } catch (err) {
-      const isRetryable = Boolean(err && err.retryable === true);
-
-      // Immediately fail for non-retryable errors or once retry attempts are exhausted
-      if (!isRetryable || attempt >= maxRetries) {
-        throw err;
-      }
-
-      // Exponential backoff: baseDelayMs * 2^attempt with small random jitter
-      const exponentialDelay = baseDelayMs * Math.pow(2, attempt);
-      const jitter = Math.floor(Math.random() * (baseDelayMs * 0.1));
-      const totalDelay = exponentialDelay + jitter;
-
-      await sleep(totalDelay);
-      attempt++;
-    }
-  }
-}
+const { callWithBackoff, defaultSleep } = require('./retry');
 
 /**
  * analyseReviews(reviews, options)
@@ -59,14 +17,12 @@ async function callWithBackoff(fn, options = {}) {
  *
  * @returns {Promise<{ results: Map, failedHashes: Set, aiCalls: number }>}
  */
-async function analyseReviews(reviews = [], options = {}) {
+async function analyseReviews(reviews, options = {}) {
   const {
     batchSize = 5,
     maxApiRetries = 4,
     baseDelayMs = 1000,
-    delayBetweenBatchesMs = options.delayBetweenBatchesMs !== undefined
-      ? options.delayBetweenBatchesMs
-      : (Number(process.env.AI_BATCH_DELAY_MS) || 100),
+    delayBetweenBatchesMs = Number(process.env.AI_BATCH_DELAY_MS) || 100,
     analyseBatch = defaultAnalyseBatch,
     sleep = defaultSleep,
   } = options;
@@ -79,126 +35,164 @@ async function analyseReviews(reviews = [], options = {}) {
     return { results, failedHashes, aiCalls };
   }
 
-  // Wrapper tracking every individual invocation made to the AI function
-  const callAi = async (batchToAnalyze) => {
-    aiCalls++;
-    return await analyseBatch(batchToAnalyze);
-  };
+  // Helper map from reviewId to original review object
+  const reviewById = new Map();
+  for (const r of reviews) {
+    reviewById.set(r.reviewId, r);
+  }
 
-  // Helper to safely parse and validate an AI response string against target review IDs
-  const validateResponse = (rawText, targetIds) => {
-    let parsed;
+  // Chunk valid unique reviews into sequential batches of batchSize
+  const batches = [];
+  for (let i = 0; i < reviews.length; i += batchSize) {
+    batches.push(reviews.slice(i, i + batchSize));
+  }
+
+  const totalBatches = batches.length;
+
+  for (let bIndex = 0; bIndex < totalBatches; bIndex++) {
+    const currentBatch = batches[bIndex];
+    let batchSucceeded = false;
+    let rawAiResponse = null;
+
+    // Retry Mechanism A: Network / API backoff retry
     try {
-      parsed = parseAiJson(rawText);
-    } catch (parseErr) {
-      // If raw JSON parsing fails completely, mark all target review IDs as invalid
-      return { valid: [], invalidIds: targetIds, errors: [parseErr.message] };
-    }
-    return validateBatch(parsed, targetIds);
-  };
-
-  // Divide reviews into sequential batches of batchSize
-  const totalBatches = Math.ceil(reviews.length / batchSize);
-
-  for (let b = 0; b < totalBatches; b++) {
-    const batch = reviews.slice(b * batchSize, (b + 1) * batchSize);
-    const idToReview = new Map(batch.map((r) => [r.reviewId, r]));
-    const expectedIds = batch.map((r) => r.reviewId);
-
-    let rawText;
-    let batchApiFailed = false;
-
-    // Step A: Call Gemini with exponential backoff
-    try {
-      rawText = await callWithBackoff(
-        () => callAi(batch),
-        { maxRetries: maxApiRetries, baseDelayMs, sleep }
+      rawAiResponse = await callWithBackoff(
+        async () => {
+          aiCalls++;
+          return await analyseBatch(currentBatch);
+        },
+        {
+          maxRetries: maxApiRetries,
+          baseDelayMs,
+          sleep,
+        }
       );
+      batchSucceeded = true;
     } catch (apiErr) {
-      // If the API keeps failing after all retries, mark this batch as failed and continue to next
-      batchApiFailed = true;
-      for (const r of batch) {
+      // If the API keeps erroring after all backoff retries,
+      // mark just that batch's reviews as failed and CONTINUE with next batches.
+      for (const r of currentBatch) {
         failedHashes.add(r.textHash);
       }
+      console.log(
+        `[Batch ${bIndex + 1}/${totalBatches}] Size: ${currentBatch.length} | Succeeded: 0 | Failed: ${currentBatch.length} (API error)`
+      );
+      continue;
     }
 
-    if (!batchApiFailed) {
-      // Step B: Validate the response
-      const firstValidation = validateResponse(rawText, expectedIds);
+    if (!batchSucceeded || !rawAiResponse) {
+      continue;
+    }
 
-      // Save all reviews that validated successfully on the first try
-      for (const item of firstValidation.valid) {
-        const rev = idToReview.get(item.id);
-        if (rev) {
-          results.set(rev.textHash, {
-            sentiment: item.sentiment,
-            topics: item.topics,
-            summary: item.summary,
-            needsReply: item.needs_reply !== undefined ? item.needs_reply : item.needsReply,
-          });
-        }
+    // Step B1: Parse and validate JSON returned by Gemini
+    let parsedArray = [];
+    try {
+      parsedArray = parseAiJson(rawAiResponse);
+    } catch {
+      parsedArray = [];
+    }
+
+    const expectedBatchIds = currentBatch.map((r) => r.reviewId);
+    const { valid = [], invalidIds = [] } = validateBatch(parsedArray, expectedBatchIds);
+
+    // Save good items from the first try
+    for (const item of valid) {
+      const original = reviewById.get(item.id);
+      if (original) {
+        results.set(original.textHash, {
+          sentiment: item.sentiment,
+          topics: item.topics,
+          summary: item.summary,
+          needsReply: item.needs_reply,
+        });
+      }
+    }
+
+    // Identify reviews that were missing or had schema validation failures
+    let retryCandidates = [];
+    for (const id of invalidIds) {
+      const original = reviewById.get(id);
+      if (original) {
+        retryCandidates.push(original);
+      }
+    }
+
+    // Retry Mechanism B: Validation retry (attempted ONCE for invalid items)
+    if (retryCandidates.length > 0) {
+      let retryRawResponse = null;
+      try {
+        retryRawResponse = await callWithBackoff(
+          async () => {
+            aiCalls++;
+            return await analyseBatch(retryCandidates);
+          },
+          {
+            maxRetries: maxApiRetries,
+            baseDelayMs,
+            sleep,
+          }
+        );
+      } catch (retryApiErr) {
+        retryRawResponse = null;
       }
 
-      // Collect any reviews that failed validation or were missing from the AI response
-      const reviewsToRetry = batch.filter((r) => firstValidation.invalidIds.includes(r.reviewId));
-
-      // Validation Retry: Retry invalid/missing reviews ONCE as a smaller batch
-      if (reviewsToRetry.length > 0) {
-        const retryExpectedIds = reviewsToRetry.map((r) => r.reviewId);
-        let retryRawText;
-        let retryApiFailed = false;
-
+      if (retryRawResponse) {
+        let retryParsed = [];
         try {
-          retryRawText = await callWithBackoff(
-            () => callAi(reviewsToRetry),
-            { maxRetries: maxApiRetries, baseDelayMs, sleep }
-          );
-        } catch (retryErr) {
-          retryApiFailed = true;
-          for (const r of reviewsToRetry) {
-            failedHashes.add(r.textHash);
+          retryParsed = parseAiJson(retryRawResponse);
+        } catch {
+          retryParsed = [];
+        }
+
+        const retryExpectedIds = retryCandidates.map((r) => r.reviewId);
+        const retryValidation = validateBatch(retryParsed, retryExpectedIds);
+
+        // Save items that succeeded on the validation retry
+        for (const item of (retryValidation.valid || [])) {
+          const original = reviewById.get(item.id);
+          if (original) {
+            results.set(original.textHash, {
+              sentiment: item.sentiment,
+              topics: item.topics,
+              summary: item.summary,
+              needsReply: item.needs_reply,
+            });
           }
         }
 
-        if (!retryApiFailed) {
-          const secondValidation = validateResponse(retryRawText, retryExpectedIds);
-
-          // Save reviews that became valid after the retry
-          for (const item of secondValidation.valid) {
-            const rev = idToReview.get(item.id);
-            if (rev) {
-              results.set(rev.textHash, {
-                sentiment: item.sentiment,
-                topics: item.topics,
-                summary: item.summary,
-                needsReply: item.needs_reply !== undefined ? item.needs_reply : item.needsReply,
-              });
-            }
+        // Reviews still invalid after the retry are marked failed
+        for (const id of (retryValidation.invalidIds || [])) {
+          const original = reviewById.get(id);
+          if (original) {
+            failedHashes.add(original.textHash);
           }
-
-          // Any review still invalid after the second attempt is marked as failed
-          for (const failedId of secondValidation.invalidIds) {
-            const rev = idToReview.get(failedId);
-            if (rev) {
-              failedHashes.add(rev.textHash);
-            }
-          }
+        }
+      } else {
+        // If the retry call itself failed completely, mark those items failed
+        for (const r of retryCandidates) {
+          failedHashes.add(r.textHash);
         }
       }
     }
 
-    // Short summary log per batch: size, succeeded, failed (never prints review text or key)
-    const succeededCount = batch.filter((r) => results.has(r.textHash)).length;
-    const batchFailedCount = batch.length - succeededCount;
-    console.log(`[Batch ${b + 1}/${totalBatches}] Size: ${batch.length} | Succeeded: ${succeededCount} | Failed: ${batchFailedCount}`);
+    // Log a short line per batch (batch number, size, success/failure counts), never the text or key
+    const succeededCount = currentBatch.filter((r) => results.has(r.textHash)).length;
+    const failedCount = currentBatch.length - succeededCount;
+    console.log(
+      `[Batch ${bIndex + 1}/${totalBatches}] Size: ${currentBatch.length} | Succeeded: ${succeededCount} | Failed: ${failedCount}`
+    );
 
-    // Pause between batches to avoid tripping rate limits on sequential calls
-    if (b < totalBatches - 1 && delayBetweenBatchesMs > 0) {
+    // Configurable delay between consecutive batches
+    if (bIndex < totalBatches - 1 && delayBetweenBatchesMs > 0) {
       await sleep(delayBetweenBatchesMs);
     }
   }
 
-  return { results, failedHashes, aiCalls };
+  return {
+    results,
+    failedHashes,
+    aiCalls,
+  };
 }
 
 module.exports = {

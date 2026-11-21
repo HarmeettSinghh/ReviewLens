@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { formatTopic } from './TopLists';
 
-export default function ReviewTable({ reviews = [], products = [] }) {
+export default function ReviewTable({ reviews = [], products = [], onSuggestReply }) {
   const [selectedProduct, setSelectedProduct] = useState('ALL');
   const [selectedSentiment, setSelectedSentiment] = useState('ALL');
   const [selectedTopic, setSelectedTopic] = useState('ALL');
@@ -177,7 +177,7 @@ export default function ReviewTable({ reviews = [], products = [] }) {
               filteredReviews.map((row) => (
                 <tr key={row.id} className={`table-row row-${row.status}`}>
                   <td className="td-id">
-                    <code>{row.id}</code>
+                    <code>{row.reviewId || row.id}</code>
                   </td>
                   <td className="td-product" title={row.product}>
                     {row.product || '—'}
@@ -216,11 +216,11 @@ export default function ReviewTable({ reviews = [], products = [] }) {
                         <span className="badge-reply-yes">Yes</span>
                         <button
                           type="button"
-                          disabled
-                          title="Coming in next phase"
-                          className="btn-suggest-reply"
+                          onClick={() => onSuggestReply && onSuggestReply(row)}
+                          className={`btn-suggest-reply ${row.suggestedReply ? 'btn-has-reply' : ''}`}
+                          title={row.suggestedReply ? 'View saved reply' : 'Generate suggested reply'}
                         >
-                          Suggest reply
+                          {row.suggestedReply ? 'View reply' : 'Suggest reply'}
                         </button>
                       </div>
                     ) : (

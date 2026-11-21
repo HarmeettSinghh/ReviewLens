@@ -172,6 +172,78 @@ async function getAllReviews() {
 }
 
 /**
+ * getReviewById(id)
+ * Finds a review by its primary key id (number) or its reviewId string (e.g. "R012").
+ * Returns the review object with topics parsed, or null if not found.
+ */
+async function getReviewById(id) {
+  if (id === undefined || id === null) {
+    return null;
+  }
+
+  const numericId = Number(id);
+  let review = null;
+
+  if (!Number.isNaN(numericId)) {
+    review = await prisma.review.findUnique({
+      where: { id: numericId },
+    });
+  }
+
+  if (!review) {
+    review = await prisma.review.findFirst({
+      where: { reviewId: String(id) },
+    });
+  }
+
+  if (!review) {
+    return null;
+  }
+
+  let parsedTopics = null;
+  if (review.topics) {
+    try {
+      parsedTopics = JSON.parse(review.topics);
+    } catch {
+      parsedTopics = [];
+    }
+  }
+
+  return {
+    ...review,
+    topics: parsedTopics,
+  };
+}
+
+/**
+ * saveSuggestedReply(reviewDbId, text)
+ * Saves a generated customer support reply to the review record.
+ * Supports updating either by primary key id (number) or reviewId (string).
+ */
+async function saveSuggestedReply(reviewDbId, text) {
+  const numericId = Number(reviewDbId);
+  if (!Number.isNaN(numericId)) {
+    return await prisma.review.update({
+      where: { id: numericId },
+      data: { suggestedReply: text },
+    });
+  }
+
+  const review = await prisma.review.findFirst({
+    where: { reviewId: String(reviewDbId) },
+  });
+
+  if (review) {
+    return await prisma.review.update({
+      where: { id: review.id },
+      data: { suggestedReply: text },
+    });
+  }
+
+  throw new Error(`Review ${reviewDbId} not found to save reply.`);
+}
+
+/**
  * getLatestUploadRun()
  * Returns the most recent upload run metadata record, or null if none exists.
  */
@@ -187,5 +259,7 @@ module.exports = {
   replaceReviews,
   saveUploadRun,
   getAllReviews,
+  getReviewById,
+  saveSuggestedReply,
   getLatestUploadRun,
 };
