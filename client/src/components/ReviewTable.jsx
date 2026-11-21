@@ -186,7 +186,10 @@ export default function ReviewTable({
 
         {/* Live Search Input */}
         <div className="table-search-wrapper">
-          <span className="search-icon">🔍</span>
+          <svg className="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
           <input
             type="text"
             value={search}
@@ -503,7 +506,7 @@ export default function ReviewTable({
                                 {row.rating != null && (
                                   <span className="drawer-rating">★ {row.rating} Stars</span>
                                 )}
-                                {row.date && <span className="drawer-date">📅 {row.date}</span>}
+                                {row.date && <span className="drawer-date">{row.date}</span>}
                               </div>
                               <button
                                 type="button"

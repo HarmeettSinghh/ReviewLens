@@ -240,7 +240,6 @@ export default function App() {
         {/* Empty State when no data has been uploaded yet */}
         {!loading && !hasData && !error && (
           <div className="state-panel panel-empty">
-            <div className="empty-icon">📊</div>
             <h3>Upload a CSV to get started</h3>
             <p>Select your reviews CSV dataset above to extract sentiment analysis, key topics, and triage actionable customer feedback.</p>
           </div>

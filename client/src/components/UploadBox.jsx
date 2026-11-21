@@ -91,7 +91,7 @@ export default function UploadBox({ onUploadSuccess, isCompact = false }) {
               id="csv-upload-input-compact"
             />
             <label htmlFor="csv-upload-input-compact" className="btn btn-secondary btn-compact-label">
-              {file ? `📄 ${file.name}` : '📁 Replace / Upload New CSV'}
+              {file ? file.name : 'Replace / Upload New CSV'}
             </label>
 
             <button
@@ -120,7 +120,6 @@ export default function UploadBox({ onUploadSuccess, isCompact = false }) {
 
         {error && (
           <div className="alert-error alert-error-compact" role="alert">
-            <span className="alert-icon">⚠️</span>
             <span>{error}</span>
           </div>
         )}
@@ -159,7 +158,7 @@ export default function UploadBox({ onUploadSuccess, isCompact = false }) {
           />
           <label htmlFor="csv-upload-input" className="file-input-label">
             {file ? (
-              <span className="file-name-selected">📄 {file.name}</span>
+              <span className="file-name-selected">{file.name}</span>
             ) : isDragging ? (
               <span className="drop-prompt">Drop your reviews.csv file here</span>
             ) : (
@@ -199,7 +198,6 @@ export default function UploadBox({ onUploadSuccess, isCompact = false }) {
 
       {error && (
         <div className="alert-error" role="alert">
-          <span className="alert-icon">⚠️</span>
           <span>{error}</span>
         </div>
       )}

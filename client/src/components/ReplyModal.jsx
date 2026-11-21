@@ -192,7 +192,7 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
             disabled={loading}
             title="Request an alternate response draft from Gemini"
           >
-            {loading ? 'Drafting...' : '🔄 Regenerate Reply'}
+            {loading ? 'Drafting...' : 'Regenerate Reply'}
           </button>
 
           <div className="footer-actions-right">
@@ -203,7 +203,7 @@ export default function ReplyModal({ review, onClose, onReplySaved }) {
               disabled={loading || !replyText}
               title="Copy response to clipboard"
             >
-              {copied ? '✓ Copied to Clipboard!' : 'Copy Response'}
+              {copied ? 'Copied to Clipboard!' : 'Copy Response'}
             </button>
             <button type="button" className="btn btn-primary" onClick={onClose}>
               Done

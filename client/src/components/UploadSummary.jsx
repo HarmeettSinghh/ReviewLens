@@ -37,7 +37,7 @@ export default function UploadSummary({ summary }) {
       </span>
       <span className="summary-divider">·</span>
       <span className="summary-item time-item">
-        ⚡ last upload: <strong>{timeDisplay}</strong>
+        Last upload: <strong>{timeDisplay}</strong>
       </span>
     </div>
   );
