@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "Customer review intelligence, sentiment tracking, and triage pipeline powered by Google Gemini.",
   "scripts": {
+    "start": "npm --prefix server start",
+    "start:prod": "npm --prefix server run start:prod",
     "install:all": "npm install && npm run install:server && npm run install:client",
     "install:server": "npm --prefix server install",
     "install:client": "npm --prefix client install",
