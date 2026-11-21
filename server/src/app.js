@@ -3,6 +3,8 @@ const cors = require('cors');
 const multer = require('multer');
 const healthRoutes = require('./routes/health');
 const uploadRoutes = require('./routes/upload');
+const reviewsRoutes = require('./routes/reviews');
+const statsRoutes = require('./routes/stats');
 
 const app = express();
 
@@ -12,9 +14,11 @@ app.use(cors());
 // Parse incoming JSON request bodies into req.body for handlers to use.
 app.use(express.json());
 
-// Mount routes under the /api path prefix.
+// Mount API routes under the /api path prefix.
 app.use('/api', healthRoutes);
 app.use('/api', uploadRoutes);
+app.use('/api', reviewsRoutes);
+app.use('/api', statsRoutes);
 
 // Centralized JSON error-handling middleware.
 // Ensures errors never return HTML, stack traces, or leak secrets.
