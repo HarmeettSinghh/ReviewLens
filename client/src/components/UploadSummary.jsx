@@ -1,7 +1,10 @@
 export default function UploadSummary({ summary }) {
   if (!summary) return null;
 
-  const seconds = (summary.durationMs / 1000).toFixed(1);
+  const isAllCached = summary.aiCalls === 0;
+  const timeDisplay = isAllCached
+    ? 'cached'
+    : `${(summary.durationMs / 1000).toFixed(1)}s`;
 
   return (
     <div className="upload-summary-bar">
@@ -34,7 +37,7 @@ export default function UploadSummary({ summary }) {
       </span>
       <span className="summary-divider">·</span>
       <span className="summary-item time-item">
-        ⚡ <strong>{seconds}s</strong> total processing time
+        ⚡ last upload: <strong>{timeDisplay}</strong>
       </span>
     </div>
   );

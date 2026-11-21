@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { uploadCsv } from '../api';
 
-export default function UploadBox({ onUploadSuccess }) {
+export default function UploadBox({ onUploadSuccess, isCompact = false }) {
   const [file, setFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,7 +45,7 @@ export default function UploadBox({ onUploadSuccess }) {
   };
 
   const handleUpload = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!file) {
       setError('Please choose a .csv file first.');
       return;
@@ -70,6 +70,65 @@ export default function UploadBox({ onUploadSuccess }) {
     }
   };
 
+  // Compact Mode when a dataset is already loaded
+  if (isCompact) {
+    return (
+      <div className="upload-box-compact">
+        <form onSubmit={handleUpload} className="compact-upload-form">
+          <div className="compact-left-group">
+            <span className="compact-badge">Active Dataset</span>
+            <span className="compact-hint">CSV files up to 2 MB</span>
+          </div>
+
+          <div className="compact-actions-group">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleFileChange}
+              disabled={loading}
+              className="file-input"
+              id="csv-upload-input-compact"
+            />
+            <label htmlFor="csv-upload-input-compact" className="btn btn-secondary btn-compact-label">
+              {file ? `📄 ${file.name}` : '📁 Replace / Upload New CSV'}
+            </label>
+
+            <button
+              type="submit"
+              disabled={loading || !file}
+              className="btn btn-primary btn-compact-submit"
+            >
+              {loading ? (
+                <>
+                  <span className="btn-spinner" />
+                  <span>Analysing...</span>
+                </>
+              ) : (
+                'Upload & Analyse'
+              )}
+            </button>
+          </div>
+        </form>
+
+        {loading && (
+          <div className="loading-banner-compact">
+            <span className="btn-spinner" />
+            <span>Analysing reviews with Gemini... This may take a few seconds.</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="alert-error alert-error-compact" role="alert">
+            <span className="alert-icon">⚠️</span>
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Standard Hero Mode when no dataset is loaded yet
   return (
     <div className={`upload-box-card ${isDragging ? 'is-dragging' : ''}`}>
       <div className="upload-box-header">

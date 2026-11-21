@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import { formatTopic } from '../formatters';
 
 export default function ReviewTable({
@@ -9,7 +9,14 @@ export default function ReviewTable({
   onSuggestReply,
 }) {
   const [expandedRowId, setExpandedRowId] = useState(null);
+  const [prevFilters, setPrevFilters] = useState(filters);
   const [showOriginalTextMap, setShowOriginalTextMap] = useState({});
+
+  // Reset expanded row whenever filter props change
+  if (filters !== prevFilters) {
+    setPrevFilters(filters);
+    setExpandedRowId(null);
+  }
 
   // Destructure active filter controls with fallbacks
   const {
@@ -91,7 +98,11 @@ export default function ReviewTable({
     });
   }, [reviews, search, needsReplyOnly, onlyMismatches, product, sentiment, topic]);
 
-  // Toggle row expansion
+  // Ensure expanded row is only active if it exists in current filteredReviews
+  const isRowVisible = filteredReviews.some((r) => r.id === expandedRowId);
+  const activeExpandedRowId = isRowVisible ? expandedRowId : null;
+
+  // Toggle row expansion (only one row expanded at a time)
   const toggleRowExpansion = (id) => {
     setExpandedRowId((prev) => (prev === id ? null : id));
   };
@@ -383,7 +394,8 @@ export default function ReviewTable({
               </tr>
             ) : (
               filteredReviews.map((row) => {
-                const isExpanded = expandedRowId === row.id;
+                const isExpanded = activeExpandedRowId === row.id;
+                const showOriginal = Boolean(showOriginalTextMap[row.id]);
                 const mismatchTooltip =
                   row.ratingMismatch && row.rating != null
                     ? row.rating >= 4
@@ -392,190 +404,185 @@ export default function ReviewTable({
                     : '';
 
                 return (
-                  <tr
-                    key={row.id}
-                    className={`table-row row-${row.status} ${isExpanded ? 'is-row-expanded' : ''}`}
-                    onClick={() => toggleRowExpansion(row.id)}
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        toggleRowExpansion(row.id);
-                      }
-                    }}
-                    role="button"
-                    aria-expanded={isExpanded}
-                  >
-                    <td className="td-expand" title="Click to view details">
-                      <span className={`expand-chevron ${isExpanded ? 'is-open' : ''}`}>▶</span>
-                    </td>
-                    <td className="td-id">
-                      <code>{row.reviewId || row.id}</code>
-                    </td>
-                    <td className="td-product" title={row.product}>
-                      {row.product || '—'}
-                    </td>
-                    <td className="td-rating">
-                      {row.rating != null ? (
-                        <div className="rating-cell">
-                          <span className="rating-pill">★ {row.rating}</span>
-                          {row.ratingMismatch && (
-                            <span className="mismatch-badge" title={mismatchTooltip}>
-                              Mismatch
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
-                    <td className="td-sentiment">{renderSentiment(row.sentiment)}</td>
-                    <td className="td-topics">
-                      {Array.isArray(row.topics) && row.topics.length > 0 ? (
-                        <div className="topic-chips">
-                          {row.topics.map((t) => (
-                            <span
-                              key={t}
-                              className={`topic-chip ${topic === t ? 'is-active-chip' : ''}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onFilterChange &&
-                                  onFilterChange({ ...filters, topic: topic === t ? 'ALL' : t });
-                              }}
-                              title={`Click to filter by ${formatTopic(t)}`}
+                  <Fragment key={row.id}>
+                    <tr
+                      className={`table-row row-${row.status} ${isExpanded ? 'is-row-expanded' : ''}`}
+                      onClick={() => toggleRowExpansion(row.id)}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleRowExpansion(row.id);
+                        }
+                      }}
+                      role="button"
+                      aria-expanded={isExpanded}
+                    >
+                      <td className="td-expand" title="Click to view details directly below">
+                        <span className={`expand-chevron ${isExpanded ? 'is-open' : ''}`}>▶</span>
+                      </td>
+                      <td className="td-id">
+                        <code>{row.reviewId || row.id}</code>
+                      </td>
+                      <td className="td-product" title={row.product}>
+                        {row.product || '—'}
+                      </td>
+                      <td className="td-rating">
+                        {row.rating != null ? (
+                          <div className="rating-cell">
+                            <span className="rating-pill">★ {row.rating}</span>
+                            {row.ratingMismatch && (
+                              <span className="mismatch-badge" title={mismatchTooltip}>
+                                Mismatch
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="td-sentiment">{renderSentiment(row.sentiment)}</td>
+                      <td className="td-topics">
+                        {Array.isArray(row.topics) && row.topics.length > 0 ? (
+                          <div className="topic-chips">
+                            {row.topics.map((t) => (
+                              <span
+                                key={t}
+                                className={`topic-chip ${topic === t ? 'is-active-chip' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onFilterChange &&
+                                    onFilterChange({ ...filters, topic: topic === t ? 'ALL' : t });
+                                }}
+                                title={`Click to filter by ${formatTopic(t)}`}
+                              >
+                                {formatTopic(t)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="td-summary" title={row.cleanText}>
+                        {row.summary || (row.cleanText ? (
+                          <span className="raw-text-fallback">{row.cleanText}</span>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        ))}
+                      </td>
+                      <td className="td-reply" onClick={(e) => e.stopPropagation()}>
+                        {row.needsReply ? (
+                          <div className="reply-cell">
+                            <span className="badge-reply-yes">Yes</span>
+                            <button
+                              type="button"
+                              onClick={() => onSuggestReply && onSuggestReply(row)}
+                              className={`btn-suggest-reply ${row.suggestedReply ? 'btn-has-reply' : ''}`}
+                              title={row.suggestedReply ? 'View saved reply' : 'Generate suggested reply with Gemini'}
                             >
-                              {formatTopic(t)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
-                    <td className="td-summary" title={row.cleanText}>
-                      {row.summary || (row.cleanText ? (
-                        <span className="raw-text-fallback">{row.cleanText}</span>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      ))}
-                    </td>
-                    <td className="td-reply" onClick={(e) => e.stopPropagation()}>
-                      {row.needsReply ? (
-                        <div className="reply-cell">
-                          <span className="badge-reply-yes">Yes</span>
-                          <button
-                            type="button"
-                            onClick={() => onSuggestReply && onSuggestReply(row)}
-                            className={`btn-suggest-reply ${row.suggestedReply ? 'btn-has-reply' : ''}`}
-                            title={row.suggestedReply ? 'View saved reply' : 'Generate suggested reply with Gemini'}
-                          >
-                            {row.suggestedReply ? 'View reply' : 'Suggest reply'}
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-muted">No</span>
-                      )}
-                    </td>
-                    <td className="td-status">{renderStatus(row)}</td>
-                  </tr>
+                              {row.suggestedReply ? 'View reply' : 'Suggest reply'}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-muted">No</span>
+                        )}
+                      </td>
+                      <td className="td-status">{renderStatus(row)}</td>
+                    </tr>
+
+                    {/* Detail Panel Rendered Directly Under Its Own Row */}
+                    {isExpanded && (
+                      <tr className="detail-drawer-row">
+                        <td colSpan="9" className="td-detail-drawer">
+                          <div className="drawer-inner-card">
+                            <div className="drawer-header">
+                              <div className="drawer-title-group">
+                                <span className="drawer-id-pill">{row.reviewId || `ID ${row.id}`}</span>
+                                <h4 className="drawer-product-title">{row.product || 'Unknown Product'}</h4>
+                                {row.rating != null && (
+                                  <span className="drawer-rating">★ {row.rating} Stars</span>
+                                )}
+                                {row.date && <span className="drawer-date">📅 {row.date}</span>}
+                              </div>
+                              <button
+                                type="button"
+                                className="btn-drawer-close"
+                                onClick={() => setExpandedRowId(null)}
+                                aria-label="Close details"
+                              >
+                                &times;
+                              </button>
+                            </div>
+
+                            <div className="drawer-body">
+                              <div className="drawer-text-section">
+                                <div className="drawer-text-header">
+                                  <span className="drawer-label">
+                                    {showOriginal ? 'Original Uncleaned Text:' : 'Sanitized Customer Text:'}
+                                  </span>
+                                  {row.originalText && row.originalText !== row.cleanText && (
+                                    <button
+                                      type="button"
+                                      className="btn-text-toggle"
+                                      onClick={(e) => toggleOriginalText(e, row.id)}
+                                    >
+                                      {showOriginal ? 'Show Cleaned Text' : 'Show Raw Original Text'}
+                                    </button>
+                                  )}
+                                </div>
+                                <blockquote className="drawer-quote">
+                                  "{showOriginal ? (row.originalText || row.cleanText) : (row.cleanText || row.originalText || '—')}"
+                                </blockquote>
+                              </div>
+
+                              {row.summary && (
+                                <div className="drawer-summary-section">
+                                  <span className="drawer-label">Gemini AI English Summary:</span>
+                                  <p className="drawer-summary-content">{row.summary}</p>
+                                </div>
+                              )}
+
+                              <div className="drawer-meta-grid">
+                                <div className="meta-item">
+                                  <span className="meta-key">Text Hash:</span>
+                                  <code className="meta-val">{row.textHash ? `${row.textHash.slice(0, 16)}...` : '—'}</code>
+                                </div>
+                                <div className="meta-item">
+                                  <span className="meta-key">Status:</span>
+                                  <span className="meta-val">{renderStatus(row)}</span>
+                                </div>
+                                {row.duplicateOf && (
+                                  <div className="meta-item">
+                                    <span className="meta-key">Duplicate Of:</span>
+                                    <code className="meta-val">{row.duplicateOf}</code>
+                                  </div>
+                                )}
+                                {row.needsReply && (
+                                  <div className="meta-item">
+                                    <span className="meta-key">Support Action:</span>
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-drawer-reply"
+                                      onClick={() => onSuggestReply && onSuggestReply(row)}
+                                    >
+                                      {row.suggestedReply ? 'View Saved Reply' : 'Generate Gemini Reply'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })
             )}
           </tbody>
         </table>
       </div>
-
-      {/* Expanded Row Detail Drawer Component */}
-      {expandedRowId && (
-        <div className="row-detail-drawer">
-          {(() => {
-            const row = reviews.find((r) => r.id === expandedRowId);
-            if (!row) return null;
-            const showOriginal = Boolean(showOriginalTextMap[row.id]);
-
-            return (
-              <div className="drawer-inner-card">
-                <div className="drawer-header">
-                  <div className="drawer-title-group">
-                    <span className="drawer-id-pill">{row.reviewId || `ID ${row.id}`}</span>
-                    <h4 className="drawer-product-title">{row.product || 'Unknown Product'}</h4>
-                    {row.rating != null && (
-                      <span className="drawer-rating">★ {row.rating} Stars</span>
-                    )}
-                    {row.date && <span className="drawer-date">📅 {row.date}</span>}
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-drawer-close"
-                    onClick={() => setExpandedRowId(null)}
-                    aria-label="Close details"
-                  >
-                    &times;
-                  </button>
-                </div>
-
-                <div className="drawer-body">
-                  <div className="drawer-text-section">
-                    <div className="drawer-text-header">
-                      <span className="drawer-label">
-                        {showOriginal ? 'Original Uncleaned Text:' : 'Sanitized Customer Text:'}
-                      </span>
-                      {row.originalText && row.originalText !== row.cleanText && (
-                        <button
-                          type="button"
-                          className="btn-text-toggle"
-                          onClick={(e) => toggleOriginalText(e, row.id)}
-                        >
-                          {showOriginal ? 'Show Cleaned Text' : 'Show Raw Original Text'}
-                        </button>
-                      )}
-                    </div>
-                    <blockquote className="drawer-quote">
-                      "{showOriginal ? (row.originalText || row.cleanText) : (row.cleanText || row.originalText || '—')}"
-                    </blockquote>
-                  </div>
-
-                  {row.summary && (
-                    <div className="drawer-summary-section">
-                      <span className="drawer-label">Gemini AI English Summary:</span>
-                      <p className="drawer-summary-content">{row.summary}</p>
-                    </div>
-                  )}
-
-                  <div className="drawer-meta-grid">
-                    <div className="meta-item">
-                      <span className="meta-key">Text Hash:</span>
-                      <code className="meta-val">{row.textHash ? `${row.textHash.slice(0, 16)}...` : '—'}</code>
-                    </div>
-                    <div className="meta-item">
-                      <span className="meta-key">Status:</span>
-                      <span className="meta-val">{renderStatus(row)}</span>
-                    </div>
-                    {row.duplicateOf && (
-                      <div className="meta-item">
-                        <span className="meta-key">Duplicate Of:</span>
-                        <code className="meta-val">{row.duplicateOf}</code>
-                      </div>
-                    )}
-                    {row.needsReply && (
-                      <div className="meta-item">
-                        <span className="meta-key">Support Action:</span>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-drawer-reply"
-                          onClick={() => onSuggestReply && onSuggestReply(row)}
-                        >
-                          {row.suggestedReply ? 'View Saved Reply' : 'Generate Gemini Reply'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
     </div>
   );
 }

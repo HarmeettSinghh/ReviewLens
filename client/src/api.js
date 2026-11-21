@@ -1,9 +1,12 @@
 /**
  * api.js
  * Centralized API client for ReviewLens frontend.
- * All HTTP requests flow through the Vite development proxy (/api/*)
- * so the client never exposes backend hostnames or Gemini API keys.
+ * In production, requests target import.meta.env.VITE_API_BASE_URL.
+ * In local development, VITE_API_BASE_URL defaults to "" so requests flow
+ * through the Vite proxy (/api/*) without exposing hostnames or keys.
  */
+
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
 /**
  * Uploads a CSV file to the backend processing pipeline.
@@ -18,7 +21,7 @@ export async function uploadCsv(file) {
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch('/api/upload', {
+  const res = await fetch(`${BASE_URL}/api/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -37,7 +40,7 @@ export async function uploadCsv(file) {
  * @returns {Promise<Object>} Stats object including lastRun
  */
 export async function fetchStats() {
-  const res = await fetch('/api/stats');
+  const res = await fetch(`${BASE_URL}/api/stats`);
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
@@ -52,7 +55,7 @@ export async function fetchStats() {
  * @returns {Promise<Array>} Array of review records
  */
 export async function fetchReviews() {
-  const res = await fetch('/api/reviews');
+  const res = await fetch(`${BASE_URL}/api/reviews`);
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
@@ -69,7 +72,7 @@ export async function fetchReviews() {
  * @returns {Promise<{ reply: string }>}
  */
 export async function fetchReply(reviewId, regenerate = false) {
-  const res = await fetch(`/api/reviews/${reviewId}/reply`, {
+  const res = await fetch(`${BASE_URL}/api/reviews/${reviewId}/reply`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

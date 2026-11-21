@@ -143,7 +143,7 @@ export default function SummaryCards({ stats, activeFilter, onSelectFilter }) {
           {agreementPercent != null ? `${agreementPercent}%` : '—'}
         </div>
         <span className="stat-subtext">
-          {mismatchCount > 0 ? `${mismatchCount} strong mismatch${mismatchCount > 1 ? 'es' : ''}` : 'ratings align with text'}
+          of ratings match text sentiment — {mismatchCount > 0 ? `${mismatchCount} strong mismatch${mismatchCount > 1 ? 'es' : ''}` : '0 mismatches'}
         </span>
       </div>
     </div>

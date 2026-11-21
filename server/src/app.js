@@ -8,8 +8,13 @@ const statsRoutes = require('./routes/stats');
 
 const app = express();
 
-// Enable Cross-Origin Resource Sharing so the frontend client can communicate with this API.
-app.use(cors());
+// Enable Cross-Origin Resource Sharing.
+// In production, restrict to process.env.CLIENT_ORIGIN when specified;
+// in local development (CLIENT_ORIGIN not set), allow all origins.
+const corsOptions = process.env.CLIENT_ORIGIN
+  ? { origin: process.env.CLIENT_ORIGIN }
+  : {};
+app.use(cors(corsOptions));
 
 // Parse incoming JSON request bodies into req.body for handlers to use.
 app.use(express.json());

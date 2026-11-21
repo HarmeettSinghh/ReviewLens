@@ -213,7 +213,7 @@ export default function App() {
       <main className="main-content">
         {/* Upload Box Section */}
         <section className="section-upload">
-          <UploadBox onUploadSuccess={handleUploadSuccess} />
+          <UploadBox onUploadSuccess={handleUploadSuccess} isCompact={hasData} />
         </section>
 
         {/* Upload Summary Line */}
